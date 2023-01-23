@@ -176,7 +176,11 @@ impl FromStr for Die {
         }
 
         let flags = &['k', 'd', 'r', 'e', 'c'];
-        let tokens = die_specifier.split_inclusive(flags).collect::<Vec<_>>();
+        let mut tokens = die_specifier.split_inclusive(flags).collect::<Vec<_>>();
+        if tokens[tokens.len() - 1].ends_with(flags) {
+            tokens.push("");
+        }
+        let tokens = tokens;
 
         let faces_str = tokens[0].strip_suffix(flags).unwrap_or(tokens[0]);
 
@@ -216,9 +220,17 @@ impl FromStr for Die {
             match sep {
                 'k' => {
                     let droprule = if let Some(num_keep) = args.strip_prefix('l') {
-                        num_keep.parse().map(DropRule::KeepLowest)
+                        if num_keep.is_empty() {
+                            Ok(DropRule::KeepLowest(1))
+                        } else {
+                            num_keep.parse().map(DropRule::KeepLowest)
+                        }
                     } else if let Some(num_keep) = args.strip_prefix('h') {
-                        num_keep.parse().map(DropRule::KeepHighest)
+                        if num_keep.is_empty() {
+                            Ok(DropRule::KeepHighest(1))
+                        } else {
+                            num_keep.parse().map(DropRule::KeepHighest)
+                        }
                     } else {
                         args.parse().map(DropRule::KeepHighest)
                     };
@@ -228,10 +240,18 @@ impl FromStr for Die {
                     );
                 }
                 'd' => {
-                    let droprule = if let Some(num_keep) = args.strip_prefix('l') {
-                        num_keep.parse().map(DropRule::DropLowest)
-                    } else if let Some(num_keep) = args.strip_prefix('h') {
-                        num_keep.parse().map(DropRule::DropHighest)
+                    let droprule = if let Some(num_drop) = args.strip_prefix('l') {
+                        if num_drop.is_empty() {
+                            Ok(DropRule::DropLowest(1))
+                        } else {
+                            num_drop.parse().map(DropRule::DropLowest)
+                        }
+                    } else if let Some(num_drop) = args.strip_prefix('h') {
+                        if num_drop.is_empty() {
+                            Ok(DropRule::DropHighest(1))
+                        } else {
+                            num_drop.parse().map(DropRule::DropHighest)
+                        }
                     } else {
                         return Err(DiceParseError::MalformedModifiers(s.to_string()));
                     };
@@ -241,20 +261,28 @@ impl FromStr for Die {
                     );
                 }
                 'r' => {
-                    reroll = args
-                        .parse()
-                        .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?;
+                    reroll = if args.is_empty() {
+                        1
+                    } else {
+                        args.parse()
+                            .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?
+                    };
                 }
                 'e' => {
-                    explode = args
-                        .parse()
-                        .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?;
+                    explode = if args.is_empty() {
+                        faces
+                    } else {
+                        args.parse()
+                            .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?
+                    };
                 }
                 'c' => {
-                    count = Some(
+                    count = Some(if args.is_empty() {
+                        faces
+                    } else {
                         args.parse()
-                            .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?,
-                    );
+                            .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?
+                    });
                 }
                 _ => {}
             }

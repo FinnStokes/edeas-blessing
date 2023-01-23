@@ -51,19 +51,21 @@ impl EventHandler for Handler {
                         }
                         DiceParseError::MalformedModifiers(s)
                         | DiceParseError::InvalidArgument(s, _) => {
-                            let err_msg = format!("Bad  dice roll `{}`: invalid modifier", s);
+                            let err_msg = format!("Bad  dice roll `{}`: invalid modifier (should be `r`,`e`,`c`,`k`,`kl`,`kh`,`dl`,`dh`)", s);
                             if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
                                 println!("Error sending message: {:?}", why);
                             }
                         }
                         DiceParseError::TooManyDice(s) => {
-                            let err_msg = format!("Bad  dice roll `{}`: too many dice", s);
+                            let err_msg =
+                                format!("Bad  dice roll `{}`: too many dice (max 1024)", s);
                             if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
                                 println!("Error sending message: {:?}", why);
                             }
                         }
                         DiceParseError::TooManyFaces(s) => {
-                            let err_msg = format!("Bad  dice roll `{}`: too many faces", s);
+                            let err_msg =
+                                format!("Bad  dice roll `{}`: too many faces (max 1048576)", s);
                             if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
                                 println!("Error sending message: {:?}", why);
                             }
