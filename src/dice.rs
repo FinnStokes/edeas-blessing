@@ -12,23 +12,29 @@ use rand::Rng;
 pub struct DiceRoll {
     dice: Vec<RollPart>,
     critical: bool,
+    label: Option<String>,
 }
 
 #[derive(Clone)]
 enum RollPart {
     Die(Die),
-    Bonus(isize),
+    Bonus(isize, Option<String>),
 }
 
 impl RollPart {
     fn roll(&self) -> RollResult {
         match self {
             Self::Die(die) => die.roll(),
-            Self::Bonus(bonus) => RollResult {
-                specifier: vec![bonus.to_string()],
+            Self::Bonus(bonus, label) => RollResult {
+                specifier: vec![if let Some(label) = label {
+                    format!("{} *[{}]*", bonus, label)
+                } else {
+                    bonus.to_string()
+                }],
                 rolls: vec![vec![]],
                 crit: 0,
                 total: *bonus,
+                label: None,
             },
         }
     }
@@ -36,11 +42,12 @@ impl RollPart {
     fn critical(&self) -> RollResult {
         match self {
             Self::Die(die) => die.critical(),
-            Self::Bonus(_) => RollResult {
+            Self::Bonus(_, _) => RollResult {
                 specifier: vec![],
                 rolls: vec![],
                 crit: 0,
                 total: 0,
+                label: None,
             },
         }
     }
@@ -57,37 +64,73 @@ pub enum DiceParseError {
     InvalidArgument(String, ParseIntError),
     IllegalExplodeArgument(String, usize),
     IllegalDropArgument(String, DropRule),
+    InvalidLabel(String),
+}
+
+fn extract_label(input: &str) -> Result<(&str, Option<&str>), DiceParseError> {
+    let parts = input.split_inclusive(&['[', ']']).collect::<Vec<_>>();
+
+    if parts.len() == 1 {
+        return Ok((input, None));
+    }
+
+    if parts.len() > 3 || parts.is_empty() {
+        return Err(DiceParseError::InvalidLabel(input.to_string()));
+    }
+
+    if parts.len() == 3 && !parts[2].trim().is_empty() {
+        return Err(DiceParseError::InvalidLabel(input.to_string()));
+    }
+
+    let token = parts[0]
+        .strip_suffix('[')
+        .ok_or_else(|| DiceParseError::InvalidLabel(input.to_string()))?;
+
+    let label = parts[1]
+        .strip_suffix(']')
+        .ok_or_else(|| DiceParseError::InvalidLabel(input.to_string()))?;
+
+    Ok((token, Some(label)))
 }
 
 impl FromStr for DiceRoll {
     type Err = DiceParseError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let input = input.to_lowercase().replace(' ', "");
+        let (label, input) = input
+            .split_once(':')
+            .map(|(label, input)| (Some(label), input))
+            .unwrap_or((None, input));
+
+        let input = input.replace('-', "+-");
+        let input = input.trim_matches(' ').strip_prefix('+').unwrap_or(&input);
 
         let critical = &input[input.len() - 1..] == "!";
 
         let input = if critical {
             &input[..input.len() - 1]
         } else {
-            &input
+            input
         };
-
-        let input = input.replace('-', "+-");
-        let input = input.strip_prefix('+').unwrap_or(&input);
 
         let dice = input
             .split('+')
             .map(|token| {
+                let (token, label) = extract_label(token)?;
+                let token = token.to_lowercase().replace(' ', "");
                 if let Ok(bonus) = token.parse::<isize>() {
-                    Ok(RollPart::Bonus(bonus))
+                    Ok(RollPart::Bonus(bonus, label.map(str::to_string)))
                 } else {
-                    Ok(RollPart::Die(token.parse()?))
+                    Ok(RollPart::Die(token.parse::<Die>()?.with_label(label)))
                 }
             })
             .collect::<Result<_, DiceParseError>>()?;
 
-        Ok(Self { dice, critical })
+        Ok(Self {
+            dice,
+            critical,
+            label: label.map(|lbl| lbl.to_string()),
+        })
     }
 }
 
@@ -95,9 +138,15 @@ impl DiceRoll {
     pub fn roll(&self) -> RollResult {
         let dice_total = self.dice.iter().map(RollPart::roll).sum::<RollResult>();
 
-        if self.critical {
+        let dice_total = if self.critical {
             let critical = self.dice.iter().map(RollPart::critical).sum::<RollResult>();
             dice_total + critical
+        } else {
+            dice_total
+        };
+
+        if let Some(label) = self.label.as_ref() {
+            dice_total.with_label(label.clone())
         } else {
             dice_total
         }
@@ -328,6 +377,7 @@ pub struct RollResult {
     pub rolls: Vec<Vec<Roll>>,
     pub crit: isize,
     pub total: isize,
+    pub label: Option<String>,
 }
 
 pub struct Roll {
@@ -445,6 +495,7 @@ impl Die {
             rolls: vec![rolls],
             crit: 0,
             total,
+            label: None,
         }
     }
 
@@ -455,6 +506,7 @@ impl Die {
                 rolls: vec![],
                 crit: 0,
                 total: 0,
+                label: None,
             };
         }
 
@@ -475,17 +527,38 @@ impl Die {
             rolls: vec![],
             crit: total,
             total,
+            label: None,
+        }
+    }
+
+    fn with_label(self, label: Option<&str>) -> Self {
+        if let Some(label) = label {
+            Self {
+                specifier: format!("{} *[{}]*", self.specifier, label),
+                ..self
+            }
+        } else {
+            self
         }
     }
 }
 
 impl RollResult {
     pub fn roll(&self) -> String {
+        let label = self
+            .label
+            .as_ref()
+            .map(|lbl| format!("*{}:* ", lbl))
+            .unwrap_or_else(|| "".to_string());
         let rolls = self.specifier.join(" + ").replace(" + -", " - ");
-        if self.crit != 0 {
-            format!("{}!", rolls)
-        } else {
-            rolls
+        let crit = if self.crit != 0 { "!" } else { "" };
+        format!("{}{}{}", label, rolls, crit)
+    }
+
+    pub fn with_label(self, label: String) -> Self {
+        Self {
+            label: Some(label),
+            ..self
         }
     }
 }
@@ -530,7 +603,12 @@ impl Display for RollResult {
         } else {
             rolls
         };
-        write!(f, "{} = **{}**", rolls, self.total)
+        let label = self
+            .label
+            .as_ref()
+            .map(|lbl| format!("*{}:* ", lbl))
+            .unwrap_or_else(|| "".to_string());
+        write!(f, "{}{} = **{}**", label, rolls, self.total)
     }
 }
 
@@ -542,6 +620,7 @@ impl Sum<RollResult> for RollResult {
                 rolls: vec![],
                 crit: 0,
                 total: 0,
+                label: None,
             },
             RollResult::add,
         )
@@ -572,6 +651,7 @@ impl Add<RollResult> for RollResult {
             rolls,
             crit: self.crit + rhs.crit,
             total: self.total + rhs.total,
+            label: None,
         }
     }
 }

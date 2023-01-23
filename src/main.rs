@@ -70,6 +70,13 @@ impl EventHandler for Handler {
                                 println!("Error sending message: {:?}", why);
                             }
                         }
+                        DiceParseError::InvalidLabel(s) => {
+                            let err_msg =
+                                format!("Bad dice roll `{}`: invalid label (should be single pair of `[]` at end of roll containing label)", s);
+                            if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
+                                println!("Error sending message: {:?}", why);
+                            }
+                        }
                         _ => {}
                     }
                     println!("Error parsing dice roll: {:?}", err);
