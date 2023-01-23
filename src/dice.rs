@@ -1,4 +1,10 @@
-use std::{fmt::Display, iter::Sum, num::ParseIntError, ops::Add, str::FromStr};
+use std::{
+    fmt::Display,
+    iter::Sum,
+    num::{IntErrorKind, ParseIntError},
+    ops::Add,
+    str::FromStr,
+};
 
 use rand::Rng;
 
@@ -44,7 +50,9 @@ impl RollPart {
 pub enum DiceParseError {
     NoDFound(String),
     InvalidNumberOfDice(String, ParseIntError),
+    TooManyDice(String),
     InvalidNumberOfFaces(String, ParseIntError),
+    TooManyFaces(String),
     MalformedModifiers(String),
     InvalidArgument(String, ParseIntError),
     IllegalExplodeArgument(String, usize),
@@ -152,19 +160,47 @@ impl FromStr for Die {
         } else if num_dice == "-" {
             -1
         } else {
-            num_dice
-                .parse()
-                .map_err(|err| DiceParseError::InvalidNumberOfDice(s.to_string(), err))?
+            num_dice.parse::<isize>().map_err(|err| {
+                if err.kind() == &IntErrorKind::PosOverflow
+                    || err.kind() == &IntErrorKind::NegOverflow
+                {
+                    DiceParseError::TooManyDice(s.to_string())
+                } else {
+                    DiceParseError::InvalidNumberOfDice(s.to_string(), err)
+                }
+            })?
         };
+
+        if num.abs() > 1024 {
+            return Err(DiceParseError::TooManyDice(s.to_string()));
+        }
 
         let flags = &['k', 'd', 'r', 'e', 'c'];
         let tokens = die_specifier.split_inclusive(flags).collect::<Vec<_>>();
 
         let faces_str = tokens[0].strip_suffix(flags).unwrap_or(tokens[0]);
 
-        let faces = faces_str
-            .parse()
-            .map_err(|err| DiceParseError::InvalidNumberOfFaces(s.to_string(), err))?;
+        let faces = faces_str.parse::<usize>().map_err(|err| {
+            if faces_str
+                .chars()
+                .take_while(|&c| char::is_numeric(c))
+                .collect::<String>()
+                .parse::<usize>()
+                .is_err()
+            {
+                if err.kind() == &IntErrorKind::PosOverflow {
+                    DiceParseError::TooManyFaces(s.to_string())
+                } else {
+                    DiceParseError::InvalidNumberOfFaces(s.to_string(), err)
+                }
+            } else {
+                DiceParseError::MalformedModifiers(s.to_string())
+            }
+        })?;
+
+        if faces > 1048576 {
+            return Err(DiceParseError::TooManyFaces(s.to_string()));
+        }
 
         let mut reroll = 0;
         let mut explode = faces + 1;
@@ -415,6 +451,17 @@ impl Die {
     }
 }
 
+impl RollResult {
+    pub fn roll(&self) -> String {
+        let rolls = self.specifier.join(" + ").replace(" + -", " - ");
+        if self.crit != 0 {
+            format!("{}!", rolls)
+        } else {
+            rolls
+        }
+    }
+}
+
 impl Display for RollResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let rolls = self
@@ -448,7 +495,8 @@ impl Display for RollResult {
                 }
             })
             .collect::<Vec<_>>()
-            .join(" + ");
+            .join(" + ")
+            .replace(" + -", " - ");
         let rolls = if self.crit != 0 {
             format!("{} + {}!", rolls, self.crit)
         } else {

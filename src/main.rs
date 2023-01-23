@@ -1,9 +1,8 @@
-use std::env;
-
 use dice::DiceParseError;
 use serenity::async_trait;
 use serenity::model::channel::Message;
 use serenity::prelude::*;
+use std::env;
 
 mod dice;
 
@@ -17,6 +16,11 @@ impl EventHandler for Handler {
                 Ok(roll) => {
                     let result = roll.roll();
                     let message = format!("{}", result);
+                    let message = if message.len() < 1000 {
+                        message
+                    } else {
+                        format!("{} = **{}**", result.roll(), result.total)
+                    };
                     if let Err(why) = msg.reply_ping(&ctx.http, message).await {
                         println!("Error sending message: {:?}", why);
                     }
@@ -48,6 +52,18 @@ impl EventHandler for Handler {
                         DiceParseError::MalformedModifiers(s)
                         | DiceParseError::InvalidArgument(s, _) => {
                             let err_msg = format!("Bad  dice roll `{}`: invalid modifier", s);
+                            if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
+                                println!("Error sending message: {:?}", why);
+                            }
+                        }
+                        DiceParseError::TooManyDice(s) => {
+                            let err_msg = format!("Bad  dice roll `{}`: too many dice", s);
+                            if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
+                                println!("Error sending message: {:?}", why);
+                            }
+                        }
+                        DiceParseError::TooManyFaces(s) => {
+                            let err_msg = format!("Bad  dice roll `{}`: too many faces", s);
                             if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
                                 println!("Error sending message: {:?}", why);
                             }
