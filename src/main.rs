@@ -11,7 +11,7 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
-        if msg.content.is_char_boundary(1) && &msg.content[..1] == "!" {
+        if msg.content.starts_with('!') {
             let is_kori = msg.author.id.as_u64() == &159989678559330304;
             match msg.content[1..].parse::<dice::DiceRoll>() {
                 Ok(roll) => {

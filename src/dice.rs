@@ -105,13 +105,9 @@ impl FromStr for DiceRoll {
         let input = input.replace('-', "+-");
         let input = input.trim_matches(' ').strip_prefix('+').unwrap_or(&input);
 
-        let critical = &input[input.len() - 1..] == "!";
-
-        let input = if critical {
-            &input[..input.len() - 1]
-        } else {
-            input
-        };
+        let trimmed = input.strip_suffix('!');
+        let critical = trimmed.is_some();
+        let input = trimmed.unwrap_or(input);
 
         let dice = input
             .split('+')
