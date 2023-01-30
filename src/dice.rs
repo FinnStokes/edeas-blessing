@@ -219,12 +219,15 @@ impl FromStr for Die {
 
         let flags = &['k', 'd', 'r', 'e', 'c'];
         let mut tokens = die_specifier.split_inclusive(flags).collect::<Vec<_>>();
-        if tokens[tokens.len() - 1].ends_with(flags) {
-            tokens.push("");
+        if let Some(token) = tokens.last() {
+            if token.ends_with(flags) {
+                tokens.push("");
+            }
         }
         let tokens = tokens;
 
-        let faces_str = tokens[0].strip_suffix(flags).unwrap_or(tokens[0]);
+        let faces_str = tokens.first().unwrap_or(&"");
+        let faces_str = faces_str.strip_suffix(flags).unwrap_or(faces_str);
 
         let faces = faces_str.parse::<usize>().map_err(|err| {
             if faces_str
@@ -254,79 +257,84 @@ impl FromStr for Die {
         let mut count = None;
 
         for window in tokens.windows(2) {
-            let sep = window[0]
-                .chars()
-                .next_back()
-                .ok_or_else(|| DiceParseError::MalformedModifiers(s.to_string()))?;
-            let args = window[1].strip_suffix(flags).unwrap_or(window[1]);
-            match sep {
-                'k' => {
-                    let droprule = if let Some(num_keep) = args.strip_prefix('l') {
-                        if num_keep.is_empty() {
-                            Ok(DropRule::KeepLowest(1))
+            if let [prev, current] = window {
+                let sep = prev
+                    .chars()
+                    .next_back()
+                    .ok_or_else(|| DiceParseError::MalformedModifiers(s.to_string()))?;
+                let args = current.strip_suffix(flags).unwrap_or(current);
+                match sep {
+                    'k' => {
+                        let droprule = if let Some(num_keep) = args.strip_prefix('l') {
+                            if num_keep.is_empty() {
+                                Ok(DropRule::KeepLowest(1))
+                            } else {
+                                num_keep.parse().map(DropRule::KeepLowest)
+                            }
+                        } else if let Some(num_keep) = args.strip_prefix('h') {
+                            if num_keep.is_empty() {
+                                Ok(DropRule::KeepHighest(1))
+                            } else {
+                                num_keep.parse().map(DropRule::KeepHighest)
+                            }
                         } else {
-                            num_keep.parse().map(DropRule::KeepLowest)
-                        }
-                    } else if let Some(num_keep) = args.strip_prefix('h') {
-                        if num_keep.is_empty() {
-                            Ok(DropRule::KeepHighest(1))
+                            args.parse().map(DropRule::KeepHighest)
+                        };
+                        drop =
+                            Some(droprule.map_err(|err| {
+                                DiceParseError::InvalidArgument(s.to_string(), err)
+                            })?);
+                    }
+                    'd' => {
+                        let droprule = if let Some(num_drop) = args.strip_prefix('l') {
+                            if num_drop.is_empty() {
+                                Ok(DropRule::DropLowest(1))
+                            } else {
+                                num_drop.parse().map(DropRule::DropLowest)
+                            }
+                        } else if let Some(num_drop) = args.strip_prefix('h') {
+                            if num_drop.is_empty() {
+                                Ok(DropRule::DropHighest(1))
+                            } else {
+                                num_drop.parse().map(DropRule::DropHighest)
+                            }
                         } else {
-                            num_keep.parse().map(DropRule::KeepHighest)
-                        }
-                    } else {
-                        args.parse().map(DropRule::KeepHighest)
-                    };
-                    drop = Some(
-                        droprule
-                            .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?,
-                    );
-                }
-                'd' => {
-                    let droprule = if let Some(num_drop) = args.strip_prefix('l') {
-                        if num_drop.is_empty() {
-                            Ok(DropRule::DropLowest(1))
+                            return Err(DiceParseError::MalformedModifiers(s.to_string()));
+                        };
+                        drop =
+                            Some(droprule.map_err(|err| {
+                                DiceParseError::InvalidArgument(s.to_string(), err)
+                            })?);
+                    }
+                    'r' => {
+                        reroll = if args.is_empty() {
+                            1
                         } else {
-                            num_drop.parse().map(DropRule::DropLowest)
-                        }
-                    } else if let Some(num_drop) = args.strip_prefix('h') {
-                        if num_drop.is_empty() {
-                            Ok(DropRule::DropHighest(1))
+                            args.parse().map_err(|err| {
+                                DiceParseError::InvalidArgument(s.to_string(), err)
+                            })?
+                        };
+                    }
+                    'e' => {
+                        explode = if args.is_empty() {
+                            faces
                         } else {
-                            num_drop.parse().map(DropRule::DropHighest)
-                        }
-                    } else {
-                        return Err(DiceParseError::MalformedModifiers(s.to_string()));
-                    };
-                    drop = Some(
-                        droprule
-                            .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?,
-                    );
+                            args.parse().map_err(|err| {
+                                DiceParseError::InvalidArgument(s.to_string(), err)
+                            })?
+                        };
+                    }
+                    'c' => {
+                        count = Some(if args.is_empty() {
+                            faces
+                        } else {
+                            args.parse().map_err(|err| {
+                                DiceParseError::InvalidArgument(s.to_string(), err)
+                            })?
+                        });
+                    }
+                    _ => {}
                 }
-                'r' => {
-                    reroll = if args.is_empty() {
-                        1
-                    } else {
-                        args.parse()
-                            .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?
-                    };
-                }
-                'e' => {
-                    explode = if args.is_empty() {
-                        faces
-                    } else {
-                        args.parse()
-                            .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?
-                    };
-                }
-                'c' => {
-                    count = Some(if args.is_empty() {
-                        faces
-                    } else {
-                        args.parse()
-                            .map_err(|err| DiceParseError::InvalidArgument(s.to_string(), err))?
-                    });
-                }
-                _ => {}
             }
         }
 
@@ -446,17 +454,19 @@ impl Die {
         }
 
         if let Some(drop) = &self.drop {
-            let mut indices = (0..rolls.len())
-                .filter(|&idx| !rolls[idx].dropped)
+            let mut undropped = rolls
+                .iter_mut()
+                .filter(|roll| !roll.dropped)
                 .collect::<Vec<_>>();
-            indices.sort_by_key(|&idx| &rolls[idx].result);
+            undropped.sort_by_key(|roll| roll.result);
+            let n_total = undropped.len();
             let to_drop = match drop {
-                DropRule::KeepLowest(n_keep) => &indices[*n_keep..],
-                DropRule::KeepHighest(n_keep) => &indices[..(indices.len() - n_keep)],
-                DropRule::DropLowest(n_keep) => &indices[..*n_keep],
-                DropRule::DropHighest(n_keep) => &indices[(indices.len() - n_keep)..],
+                DropRule::KeepLowest(n_keep) => undropped.split_at_mut(*n_keep).1,
+                DropRule::KeepHighest(n_keep) => undropped.split_at_mut(n_total - n_keep).0,
+                DropRule::DropLowest(n_drop) => undropped.split_at_mut(*n_drop).0,
+                DropRule::DropHighest(n_drop) => undropped.split_at_mut(n_total - n_drop).1,
             };
-            to_drop.iter().for_each(|&idx| rolls[idx].dropped = true);
+            to_drop.iter_mut().for_each(|roll| roll.dropped = true);
         }
 
         let mut total = match self.count {
