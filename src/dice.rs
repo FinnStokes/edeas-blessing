@@ -7,6 +7,7 @@ use std::{
 };
 
 use rand::Rng;
+use thiserror::Error;
 
 #[derive(Clone)]
 pub struct DiceRoll {
@@ -53,17 +54,36 @@ impl RollPart {
     }
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum DiceParseError {
+    #[error("invalid dice string `{0}`: no 'd' separator")]
     NoDFound(String),
+
+    #[error("invalid dice string `{0}`: malformed number of dice")]
     InvalidNumberOfDice(String, ParseIntError),
+
+    #[error("invalid dice string `{0}`: too many dice (max 1024)")]
     TooManyDice(String),
+
+    #[error("invalid dice string `{0}`: malformed number of faces")]
     InvalidNumberOfFaces(String, ParseIntError),
+
+    #[error("invalid dice string `{0}`: too many faces (max 1048576)")]
     TooManyFaces(String),
+
+    #[error("invalid dice string `{0}`: unknown or malformed modifiers")]
     MalformedModifiers(String),
+
+    #[error("invalid dice string `{0}`: malformed argument for modifier")]
     InvalidArgument(String, ParseIntError),
+
+    #[error("invalid dice string `{0}`: illegal explode argument (min 2)")]
     IllegalExplodeArgument(String, usize),
+
+    #[error("invalid dice string `{0}`: illegal drop argument (max n_dice-1)")]
     IllegalDropArgument(String, DropRule),
+
+    #[error("invalid dice string `{0}`: malformed label")]
     InvalidLabel(String),
 }
 
