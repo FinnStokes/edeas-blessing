@@ -68,29 +68,26 @@ pub enum DiceParseError {
 }
 
 fn extract_label(input: &str) -> Result<(&str, Option<&str>), DiceParseError> {
-    let parts = input.split_inclusive(&['[', ']']).collect::<Vec<_>>();
+    let parts = input
+        .trim_end()
+        .split_inclusive(&['[', ']'])
+        .collect::<Vec<_>>();
 
-    if parts.len() == 1 {
-        return Ok((input, None));
+    match &parts[..] {
+        [token] => Ok((token, None)),
+        [token, label] | [token, label, ""] => {
+            let token = token
+                .strip_suffix('[')
+                .ok_or_else(|| DiceParseError::InvalidLabel(input.to_string()))?;
+
+            let label = label
+                .strip_suffix(']')
+                .ok_or_else(|| DiceParseError::InvalidLabel(input.to_string()))?;
+
+            Ok((token, Some(label)))
+        }
+        _ => Err(DiceParseError::InvalidLabel(input.to_string())),
     }
-
-    if parts.len() > 3 || parts.is_empty() {
-        return Err(DiceParseError::InvalidLabel(input.to_string()));
-    }
-
-    if parts.len() == 3 && !parts[2].trim().is_empty() {
-        return Err(DiceParseError::InvalidLabel(input.to_string()));
-    }
-
-    let token = parts[0]
-        .strip_suffix('[')
-        .ok_or_else(|| DiceParseError::InvalidLabel(input.to_string()))?;
-
-    let label = parts[1]
-        .strip_suffix(']')
-        .ok_or_else(|| DiceParseError::InvalidLabel(input.to_string()))?;
-
-    Ok((token, Some(label)))
 }
 
 impl FromStr for DiceRoll {
