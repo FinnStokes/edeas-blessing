@@ -1,8 +1,8 @@
 use std::{
     fmt::Display,
-    iter::Sum,
+    iter::{Product, Sum},
     num::{IntErrorKind, ParseIntError},
-    ops::Add,
+    ops::{Add, Mul},
     str::FromStr,
 };
 
@@ -11,7 +11,7 @@ use thiserror::Error;
 
 #[derive(Clone)]
 pub struct DiceRoll {
-    dice: Vec<RollPart>,
+    dice: Vec<Vec<RollPart>>,
     critical: bool,
     label: Option<String>,
 }
@@ -34,6 +34,7 @@ impl RollPart {
                 }],
                 rolls: vec![vec![]],
                 crit: 0,
+                crit_base: 0,
                 total: *bonus,
                 label: None,
             },
@@ -43,10 +44,11 @@ impl RollPart {
     fn critical(&self) -> RollResult {
         match self {
             Self::Die(die) => die.critical(),
-            Self::Bonus(_, _) => RollResult {
+            Self::Bonus(bonus, _) => RollResult {
                 specifier: vec![],
                 rolls: vec![],
                 crit: 0,
+                crit_base: *bonus,
                 total: 0,
                 label: None,
             },
@@ -119,23 +121,51 @@ impl FromStr for DiceRoll {
             .map(|(label, input)| (Some(label), input))
             .unwrap_or((None, input));
 
-        let input = input.replace('-', "+-");
-        let input = input.trim_matches(' ').strip_prefix('+').unwrap_or(&input);
+        // Allow x, *, or unicode multiplication symbol for multiplication
+        let input = input.replace(&['×', 'x'], "*");
 
+        // Shenanigans to turn subtraction into addition of a negative without breaking
+        // negatives in leading roll or multiplications
+
+        // Convert hyphen to minus sign to mark as unprocessed
+        let input = input.replace('-', "−");
+        // Convert leading minus sign or minus sign following multiplication to hyphen
+        let input = input
+            .split('*')
+            .map(|s| {
+                s.trim()
+                    .strip_prefix('−')
+                    .map(|suffix| format!("-{}", suffix))
+                    .unwrap_or(s.trim().to_owned())
+            })
+            .collect::<Vec<_>>()
+            .join("*");
+        // Insert + before every remaining minus sign
+        let input = input.replace('−', "+-");
+
+        // Trim leading or trailing whitespace
+        let input = input.trim();
+
+        // Parse trailing exclamation point as critical flag
         let trimmed = input.strip_suffix('!');
         let critical = trimmed.is_some();
         let input = trimmed.unwrap_or(input);
 
         let dice = input
             .split('+')
-            .map(|token| {
-                let (token, label) = extract_label(token)?;
-                let token = token.to_lowercase().replace(' ', "");
-                if let Ok(bonus) = token.parse::<isize>() {
-                    Ok(RollPart::Bonus(bonus, label.map(str::to_string)))
-                } else {
-                    Ok(RollPart::Die(token.parse::<Die>()?.with_label(label)))
-                }
+            .map(|product| {
+                product
+                    .split('*')
+                    .map(|token| {
+                        let (token, label) = extract_label(token)?;
+                        let token = token.to_lowercase().replace(' ', "");
+                        if let Ok(bonus) = token.parse::<isize>() {
+                            Ok(RollPart::Bonus(bonus, label.map(str::to_string)))
+                        } else {
+                            Ok(RollPart::Die(token.parse::<Die>()?.with_label(label)))
+                        }
+                    })
+                    .collect::<Result<_, DiceParseError>>()
             })
             .collect::<Result<_, DiceParseError>>()?;
 
@@ -149,10 +179,18 @@ impl FromStr for DiceRoll {
 
 impl DiceRoll {
     pub fn roll(&self) -> RollResult {
-        let dice_total = self.dice.iter().map(RollPart::roll).sum::<RollResult>();
+        let dice_total = self
+            .dice
+            .iter()
+            .map(|product| product.iter().map(RollPart::roll).product())
+            .sum::<RollResult>();
 
         let dice_total = if self.critical {
-            let critical = self.dice.iter().map(RollPart::critical).sum::<RollResult>();
+            let critical = self
+                .dice
+                .iter()
+                .map(|product| product.iter().map(RollPart::critical).product())
+                .sum::<RollResult>();
             dice_total + critical
         } else {
             dice_total
@@ -237,7 +275,7 @@ impl FromStr for Die {
             return Err(DiceParseError::TooManyDice(s.to_string()));
         }
 
-        let flags = &['k', 'd', 'r', 'e', 'c'];
+        let flags = &['k', 'd', 'r', 'e', 'c', '*'];
         let mut tokens = die_specifier.split_inclusive(flags).collect::<Vec<_>>();
         if let Some(token) = tokens.last() {
             if token.ends_with(flags) {
@@ -397,6 +435,7 @@ pub struct RollResult {
     pub specifier: Vec<String>,
     pub rolls: Vec<Vec<Roll>>,
     pub crit: isize,
+    pub crit_base: isize,
     pub total: isize,
     pub label: Option<String>,
 }
@@ -517,22 +556,13 @@ impl Die {
             specifier: vec![self.specifier.clone()],
             rolls: vec![rolls],
             crit: 0,
+            crit_base: 0,
             total,
             label: None,
         }
     }
 
     pub fn critical(&self) -> RollResult {
-        if self.negative {
-            return RollResult {
-                specifier: vec![],
-                rolls: vec![],
-                crit: 0,
-                total: 0,
-                label: None,
-            };
-        }
-
         let rolls = (0..self.num)
             .map(|_| Roll::maximise(self.faces))
             .collect::<Vec<_>>();
@@ -545,12 +575,24 @@ impl Die {
                 .count() as isize,
         };
 
-        RollResult {
-            specifier: vec![],
-            rolls: vec![],
-            crit: total,
-            total,
-            label: None,
+        if self.negative {
+            return RollResult {
+                specifier: vec![],
+                rolls: vec![],
+                crit: 0,
+                crit_base: total,
+                total: 0,
+                label: None,
+            };
+        } else {
+            RollResult {
+                specifier: vec![],
+                rolls: vec![],
+                crit: total,
+                crit_base: total,
+                total,
+                label: None,
+            }
         }
     }
 
@@ -573,7 +615,7 @@ impl RollResult {
             .as_ref()
             .map(|lbl| format!("*{}:* ", lbl))
             .unwrap_or_else(|| "".to_string());
-        let rolls = self.specifier.join(" + ").replace(" + -", " - ");
+        let rolls = self.specifier.join("").replace(" + -", " - ");
         let crit = if self.crit != 0 { "!" } else { "" };
         format!("{}{}{}", label, rolls, crit)
     }
@@ -619,8 +661,9 @@ impl Display for RollResult {
                 }
             })
             .collect::<Vec<_>>()
-            .join(" + ")
-            .replace(" + -", " - ");
+            .join("")
+            .replace(" + -", " − ")
+            .replace('-', "−");
         let rolls = if self.crit != 0 {
             format!("{} + {}!", rolls, self.crit)
         } else {
@@ -642,6 +685,7 @@ impl Sum<RollResult> for RollResult {
                 specifier: vec![],
                 rolls: vec![],
                 crit: 0,
+                crit_base: 0,
                 total: 0,
                 label: None,
             },
@@ -656,6 +700,7 @@ impl Add<isize> for RollResult {
     fn add(self, rhs: isize) -> Self::Output {
         RollResult {
             total: self.total + rhs,
+            crit_base: self.crit_base + rhs,
             ..self
         }
     }
@@ -667,13 +712,105 @@ impl Add<RollResult> for RollResult {
     fn add(self, rhs: RollResult) -> Self::Output {
         let mut rolls = self.rolls;
         rolls.extend(rhs.rolls.into_iter());
-        let mut specifier = self.specifier;
-        specifier.extend(rhs.specifier.into_iter());
+        let specifier = if self.specifier.len() > 0 {
+            let mut specifier = self.specifier;
+            specifier.extend(
+                rhs.specifier
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, specifier)| {
+                        if idx == 0 {
+                            format!(" + {}", specifier)
+                        } else {
+                            specifier
+                        }
+                    }),
+            );
+            specifier
+        } else {
+            rhs.specifier
+        };
         RollResult {
             specifier,
             rolls,
             crit: self.crit + rhs.crit,
+            crit_base: self.crit_base + rhs.crit_base,
             total: self.total + rhs.total,
+            label: None,
+        }
+    }
+}
+
+impl Product<RollResult> for RollResult {
+    fn product<I: Iterator<Item = RollResult>>(iter: I) -> Self {
+        iter.fold(
+            RollResult {
+                specifier: vec![],
+                rolls: vec![],
+                crit: 0,
+                crit_base: 1,
+                total: 1,
+                label: None,
+            },
+            RollResult::mul,
+        )
+    }
+}
+
+impl Mul<isize> for RollResult {
+    type Output = RollResult;
+
+    fn mul(self, rhs: isize) -> Self::Output {
+        RollResult {
+            total: self.total * rhs,
+            crit: self.crit * rhs,
+            crit_base: self.crit_base * rhs,
+            ..self
+        }
+    }
+}
+
+impl Mul<RollResult> for RollResult {
+    type Output = RollResult;
+
+    fn mul(self, rhs: RollResult) -> Self::Output {
+        let mut rolls = self.rolls;
+        rolls.extend(rhs.rolls.into_iter());
+        let specifier = if self.specifier.len() > 0 {
+            let mut specifier = self.specifier;
+            specifier.extend(
+                rhs.specifier
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, specifier)| {
+                        if idx == 0 {
+                            format!(" × {}", specifier)
+                        } else {
+                            specifier
+                        }
+                    }),
+            );
+            specifier
+        } else {
+            rhs.specifier
+        };
+        let crit = if self.crit != 0 || rhs.crit != 0 {
+            self.crit_base * rhs.crit_base
+        } else {
+            0
+        };
+        let total = self.total * rhs.total
+            + if crit > self.crit * rhs.crit {
+                crit - self.crit * rhs.crit
+            } else {
+                0
+            };
+        RollResult {
+            specifier,
+            rolls,
+            total,
+            crit: if crit > 0 { crit } else { 0 },
+            crit_base: self.crit_base * rhs.crit_base,
             label: None,
         }
     }
