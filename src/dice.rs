@@ -1,6 +1,6 @@
 use std::{
     fmt::Display,
-    iter::{Product, Sum},
+    iter::{self, Product, Sum},
     num::{IntErrorKind, ParseIntError},
     ops::{Add, Mul},
     str::FromStr,
@@ -223,10 +223,14 @@ struct Die {
     /// Dice should have this many faces
     faces: usize,
 
-    /// Reroll dice under this threshold (once)
+    /// Reroll dice under this threshold
     reroll: usize,
 
+    /// If false, only reroll dice once, if true keep rerolling until over threshold
+    chain_reroll: bool,
+
     /// Explode dice above or equal to this threshold (repeatedly)
+    /// We don't reroll explosions, as that could lead to an infinite loop
     explode: usize,
 
     /// Drop lowest or highest rolls
@@ -310,6 +314,7 @@ impl FromStr for Die {
         }
 
         let mut reroll = 0;
+        let mut chain_reroll = false;
         let mut explode = faces + 1;
         let mut drop = None;
         let mut count = None;
@@ -365,6 +370,7 @@ impl FromStr for Die {
                             })?);
                     }
                     'r' => {
+                        chain_reroll = false;
                         reroll = if args.is_empty() {
                             1
                         } else {
@@ -423,6 +429,7 @@ impl FromStr for Die {
             num: num.unsigned_abs(),
             faces,
             reroll,
+            chain_reroll,
             explode,
             drop,
             count,
@@ -473,44 +480,44 @@ impl Roll {
 impl Die {
     pub fn roll(&self) -> RollResult {
         let mut rolls = (0..self.num)
-            .map(|_| Roll::random(self.faces))
+            .flat_map(|_| {
+                // Reroll dice that are below reroll threshold
+                iter::repeat_with(|| Roll::random(self.faces))
+                    .enumerate()
+                    .scan(true, |reroll, (n_roll, roll)| {
+                        // Once we get a roll that we keep (i.e. do not reroll), we are done
+                        if !*reroll {
+                            return None;
+                        }
+
+                        // Compute reroll condition
+                        *reroll = roll.result <= self.reroll as isize
+                            && (n_roll == 0 || self.chain_reroll); // If not chaining rerolls, only reroll first roll
+                        Some(Roll {
+                            dropped: *reroll, // Mark rerolled dice as dropped
+                            ..roll
+                        })
+                    })
+            })
+            .flat_map(|roll| {
+                // Roll extra dice for any rolls that are above explode threshold
+                iter::once(roll)
+                    .chain(iter::repeat_with(|| Roll::random(self.faces)))
+                    .scan(true, |explode, roll| {
+                        // Once we get a roll that doesn't explode, we are done
+                        if !*explode {
+                            return None;
+                        }
+
+                        // Compute explode condition
+                        *explode = roll.result >= self.explode as isize;
+                        Some(Roll {
+                            exploded: *explode, // Mark rerolled dice as dropped
+                            ..roll
+                        })
+                    })
+            })
             .collect::<Vec<_>>();
-
-        let n_reroll = rolls
-            .iter_mut()
-            .filter(|roll| roll.result as usize <= self.reroll)
-            .map(|roll| {
-                roll.dropped = true;
-            })
-            .count();
-        if n_reroll > 0 {
-            rolls.extend(
-                (0..n_reroll)
-                    .map(|_| Roll::random(self.faces))
-                    .collect::<Vec<_>>(),
-            );
-        }
-
-        let mut n_explode = rolls
-            .iter_mut()
-            .filter(|roll| !roll.dropped && (roll.result as usize) >= self.explode)
-            .map(|roll| {
-                roll.exploded = true;
-            })
-            .count();
-        while n_explode > 0 {
-            let mut new_rolls = (0..n_explode)
-                .map(|_| Roll::random(self.faces))
-                .collect::<Vec<_>>();
-            n_explode = new_rolls
-                .iter_mut()
-                .filter(|roll| !roll.dropped && (roll.result as usize) >= self.explode)
-                .map(|roll| {
-                    roll.exploded = true;
-                })
-                .count();
-            rolls.extend(new_rolls);
-        }
 
         if let Some(drop) = &self.drop {
             let mut undropped = rolls
@@ -528,7 +535,7 @@ impl Die {
             to_drop.iter_mut().for_each(|roll| roll.dropped = true);
         }
 
-        let mut total = match self.count {
+        let total = match self.count {
             None => rolls
                 .iter()
                 .filter(|roll| !roll.dropped)
@@ -541,23 +548,22 @@ impl Die {
                 .count() as isize,
         };
 
-        if self.negative {
-            rolls = rolls
-                .iter()
-                .map(|roll| Roll {
-                    result: -roll.result,
-                    ..*roll
-                })
-                .collect();
-            total = -total;
-        }
+        let multiplier = if self.negative { -1 } else { 1 };
+
+        let rolls = rolls
+            .iter()
+            .map(|roll| Roll {
+                result: roll.result * multiplier,
+                ..*roll
+            })
+            .collect();
 
         RollResult {
             specifier: vec![self.specifier.clone()],
             rolls: vec![rolls],
             crit: 0,
             crit_base: 0,
-            total,
+            total: total * multiplier,
             label: None,
         }
     }
