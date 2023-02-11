@@ -13,7 +13,7 @@ impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
         if msg.content.starts_with('!') {
             let is_kori = msg.author.id.as_u64() == &159989678559330304;
-            match msg.content[1..].parse::<dice::DiceRoll>() {
+            let response = match msg.content[1..].parse::<dice::DiceRoll>() {
                 Ok(roll) => {
                     let result = roll.roll();
                     let message = format!("{}", result);
@@ -22,108 +22,93 @@ impl EventHandler for Handler {
                     } else {
                         format!("{} = **{}**", result.roll(), result.total)
                     };
-                    if let Err(why) = msg.reply_ping(&ctx.http, message).await {
-                        println!("Error sending message: {:?}", why);
-                    }
+                    Some(message)
                 }
                 Err(err) => match &err {
-                    DiceParseError::IllegalExplodeArgument(s, _) => {
-                        let err_msg = if is_kori {
-                            let react = msg.react(&ctx.http, '😠');
-                            if let Err(why) = react.await {
-                                println!("Error reacting to message: {:?}", why);
-                            }
-                            "Bad 0N1, infinite explosions are forbidden!".to_string()
-                        } else {
-                            format!(
-                                "Bad dice roll `{}`: explode value must be greater than one",
-                                s
-                            )
-                        };
-                        if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
-                            println!("Error sending message: {:?}", why);
+                    DiceParseError::IllegalExplodeArgument(s, _) => Some(if is_kori {
+                        let react = msg.react(&ctx.http, '😠');
+                        if let Err(why) = react.await {
+                            println!("Error reacting to message: {:?}", why);
                         }
-                    }
-                    DiceParseError::IllegalDropArgument(s, drop) => {
-                        let err_msg = if is_kori {
-                            let react = msg.react(&ctx.http, '🖕');
-                            if let Err(why) = react.await {
-                                println!("Error reacting to message: {:?}", why);
-                            }
-                            "Greedy robot! You can't take more than you have!".to_string()
-                        } else {
-                            match drop {
-                                dice::DropRule::KeepHighest(_) | dice::DropRule::KeepLowest(_) => {
-                                    format!("Bad dice roll `{}`: keep count must be less than number of dice", s)
-                                }
-                                dice::DropRule::DropHighest(_) | dice::DropRule::DropLowest(_) => {
-                                    format!("Bad dice roll `{}`: drop count must be less than number of dice", s)
-                                }
-                            }
-                        };
-                        if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
-                            println!("Error sending message: {:?}", why);
+                        "Bad 0N1, infinite explosions are forbidden!".to_string()
+                    } else {
+                        format!(
+                            "Bad dice roll `{}`: explode value must be greater than one",
+                            s
+                        )
+                    }),
+                    DiceParseError::IllegalDropArgument(s, drop) => Some(if is_kori {
+                        let react = msg.react(&ctx.http, '🖕');
+                        if let Err(why) = react.await {
+                            println!("Error reacting to message: {:?}", why);
                         }
-                    }
+                        "Greedy robot! You can't take more than you have!".to_string()
+                    } else {
+                        match drop {
+                            dice::DropRule::KeepHighest(_) | dice::DropRule::KeepLowest(_) => {
+                                format!("Bad dice roll `{}`: keep count must be less than number of dice", s)
+                            }
+                            dice::DropRule::DropHighest(_) | dice::DropRule::DropLowest(_) => {
+                                format!("Bad dice roll `{}`: drop count must be less than number of dice", s)
+                            }
+                        }
+                    }),
                     DiceParseError::MalformedModifiers(s)
-                    | DiceParseError::InvalidArgument(s, _) => {
-                        let err_msg = if is_kori {
-                            let react = msg.react(&ctx.http, '🤭');
-                            if let Err(why) = react.await {
-                                println!("Error reacting to message: {:?}", why);
-                            }
-                            "You're outputting garbage 0N1, I think you need to defragment your memory!".to_string()
-                        } else {
-                            format!("Bad dice roll `{}`: invalid modifier (should be `r`,`e`,`c`,`k`,`kl`,`kh`,`dl`,`dh`)", s)
-                        };
-                        if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
-                            println!("Error sending message: {:?}", why);
+                    | DiceParseError::InvalidArgument(s, _) => Some(if is_kori {
+                        let react = msg.react(&ctx.http, '🤭');
+                        if let Err(why) = react.await {
+                            println!("Error reacting to message: {:?}", why);
                         }
-                    }
-                    DiceParseError::TooManyDice(s) => {
-                        let err_msg = if is_kori {
-                            let react = msg.react(&ctx.http, '🤣');
-                            if let Err(why) = react.await {
-                                println!("Error reacting to message: {:?}", why);
-                            }
-                            "Nice try 0N1, you can't DOS me!".to_string()
-                        } else {
-                            format!("Bad dice roll `{}`: too many dice (max 1024)", s)
-                        };
-                        if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
-                            println!("Error sending message: {:?}", why);
+                        "You're outputting garbage 0N1, I think you need to defragment your memory!"
+                            .to_string()
+                    } else {
+                        format!("Bad dice roll `{}`: invalid modifier (should be `r`,`e`,`c`,`k`,`kl`,`kh`,`dl`,`dh`)", s)
+                    }),
+                    DiceParseError::TooManyDice(s) => Some(if is_kori {
+                        let react = msg.react(&ctx.http, '🤣');
+                        if let Err(why) = react.await {
+                            println!("Error reacting to message: {:?}", why);
                         }
-                    }
-                    DiceParseError::TooManyFaces(s) => {
-                        let err_msg = if is_kori {
-                            let react = msg.react(&ctx.http, '🤨');
-                            if let Err(why) = react.await {
-                                println!("Error reacting to message: {:?}", why);
-                            }
-                            "Did you overflow a register 0N1?".to_string()
-                        } else {
-                            format!("Bad dice roll `{}`: too many faces (max 1048576)", s)
-                        };
-                        if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
-                            println!("Error sending message: {:?}", why);
+                        "Nice try 0N1, you can't DOS me!".to_string()
+                    } else {
+                        format!("Bad dice roll `{}`: too many dice (max 1024)", s)
+                    }),
+                    DiceParseError::TooManyFaces(s) => Some(if is_kori {
+                        let react = msg.react(&ctx.http, '🤨');
+                        if let Err(why) = react.await {
+                            println!("Error reacting to message: {:?}", why);
                         }
-                    }
-                    DiceParseError::InvalidLabel(s) => {
-                        let err_msg = if is_kori {
-                            let react = msg.react(&ctx.http, '🤭');
-                            if let Err(why) = react.await {
-                                println!("Error reacting to message: {:?}", why);
-                            }
-                            "You're outputting garbage 0N1, I think you need to defragment your memory!".to_string()
-                        } else {
-                            format!("Bad dice roll `{}`: invalid label (should be single pair of `[]` at end of roll containing label)", s)
-                        };
-                        if let Err(why) = msg.reply_ping(&ctx.http, err_msg).await {
-                            println!("Error sending message: {:?}", why);
+                        "Did you overflow a register 0N1?".to_string()
+                    } else {
+                        format!("Bad dice roll `{}`: too many faces (max 1048576)", s)
+                    }),
+                    DiceParseError::InvalidLabel(s) => Some(if is_kori {
+                        let react = msg.react(&ctx.http, '🤭');
+                        if let Err(why) = react.await {
+                            println!("Error reacting to message: {:?}", why);
                         }
-                    }
-                    _ => {}
+                        "You're outputting garbage 0N1, I think you need to defragment your memory!"
+                            .to_string()
+                    } else {
+                        format!("Bad dice roll `{}`: invalid label (should be single pair of `[]` at end of roll containing label)", s)
+                    }),
+                    DiceParseError::NoDFound(s) if s.parse::<f32>().is_ok() => Some(if is_kori {
+                        let react = msg.react(&ctx.http, '🤔');
+                        if let Err(why) = react.await {
+                            println!("Error reacting to message: {:?}", why);
+                        }
+                        "No matter how many points you float, you can't trick me into a rounding error 0N1!"
+                            .to_string()
+                    } else {
+                        format!("Bad input `{}`: numbers must be integers", s)
+                    }),
+                    _ => None,
                 },
+            };
+            if let Some(message) = response {
+                if let Err(why) = msg.reply_ping(&ctx.http, message).await {
+                    println!("Error sending message: {:?}", why);
+                }
             }
         }
     }
