@@ -34,7 +34,7 @@ impl RollPart {
                 }],
                 rolls: vec![vec![]],
                 crit: 0,
-                crit_base: 0,
+                base: *bonus,
                 total: *bonus,
                 label: None,
             },
@@ -48,7 +48,7 @@ impl RollPart {
                 specifier: vec![],
                 rolls: vec![],
                 crit: 0,
-                crit_base: *bonus,
+                base: *bonus,
                 total: 0,
                 label: None,
             },
@@ -438,15 +438,17 @@ impl FromStr for Die {
     }
 }
 
+#[derive(Debug)]
 pub struct RollResult {
     pub specifier: Vec<String>,
     pub rolls: Vec<Vec<Roll>>,
     pub crit: isize,
-    pub crit_base: isize,
+    pub base: isize,
     pub total: isize,
     pub label: Option<String>,
 }
 
+#[derive(Debug)]
 pub struct Roll {
     faces: usize,
     result: isize,
@@ -562,7 +564,7 @@ impl Die {
             specifier: vec![self.specifier.clone()],
             rolls: vec![rolls],
             crit: 0,
-            crit_base: 0,
+            base: total * multiplier,
             total: total * multiplier,
             label: None,
         }
@@ -586,7 +588,7 @@ impl Die {
                 specifier: vec![],
                 rolls: vec![],
                 crit: 0,
-                crit_base: total,
+                base: total,
                 total: 0,
                 label: None,
             };
@@ -595,7 +597,7 @@ impl Die {
                 specifier: vec![],
                 rolls: vec![],
                 crit: total,
-                crit_base: total,
+                base: total,
                 total,
                 label: None,
             }
@@ -691,7 +693,7 @@ impl Sum<RollResult> for RollResult {
                 specifier: vec![],
                 rolls: vec![],
                 crit: 0,
-                crit_base: 0,
+                base: 0,
                 total: 0,
                 label: None,
             },
@@ -706,7 +708,7 @@ impl Add<isize> for RollResult {
     fn add(self, rhs: isize) -> Self::Output {
         RollResult {
             total: self.total + rhs,
-            crit_base: self.crit_base + rhs,
+            base: self.base + rhs,
             ..self
         }
     }
@@ -740,7 +742,7 @@ impl Add<RollResult> for RollResult {
             specifier,
             rolls,
             crit: self.crit + rhs.crit,
-            crit_base: self.crit_base + rhs.crit_base,
+            base: self.base + rhs.base,
             total: self.total + rhs.total,
             label: None,
         }
@@ -754,8 +756,8 @@ impl Product<RollResult> for RollResult {
                 specifier: vec![],
                 rolls: vec![],
                 crit: 0,
-                crit_base: 1,
-                total: 1,
+                base: 1,
+                total: 0,
                 label: None,
             },
             RollResult::mul,
@@ -770,7 +772,7 @@ impl Mul<isize> for RollResult {
         RollResult {
             total: self.total * rhs,
             crit: self.crit * rhs,
-            crit_base: self.crit_base * rhs,
+            base: self.base * rhs,
             ..self
         }
     }
@@ -800,23 +802,16 @@ impl Mul<RollResult> for RollResult {
         } else {
             rhs.specifier
         };
-        let crit = if self.crit != 0 || rhs.crit != 0 {
-            self.crit_base * rhs.crit_base
-        } else {
-            0
-        };
-        let total = self.total * rhs.total
-            + if crit > self.crit * rhs.crit {
-                crit - self.crit * rhs.crit
-            } else {
-                0
-            };
+
+        let total = self.base * rhs.total + self.total * rhs.base - self.total * rhs.total;
+        let crit = self.base * rhs.crit + self.crit * rhs.base - self.crit * rhs.crit;
+
         RollResult {
             specifier,
             rolls,
-            total,
+            total: if crit > 0 { total } else { total - crit },
             crit: if crit > 0 { crit } else { 0 },
-            crit_base: self.crit_base * rhs.crit_base,
+            base: self.base * rhs.base,
             label: None,
         }
     }
