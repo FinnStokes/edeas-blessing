@@ -36,6 +36,7 @@ impl RollPart {
                 crit: 0,
                 base: *bonus,
                 total: *bonus,
+                fails: 0,
                 label: None,
             },
         }
@@ -50,6 +51,7 @@ impl RollPart {
                 crit: 0,
                 base: *bonus,
                 total: 0,
+                fails: 0,
                 label: None,
             },
         }
@@ -452,6 +454,7 @@ pub struct RollResult {
     pub crit: isize,
     pub base: isize,
     pub total: isize,
+    pub fails: isize,
     pub label: Option<String>,
 }
 
@@ -557,6 +560,14 @@ impl Die {
                 .count() as isize,
         };
 
+        let fails = match self.count {
+            None => 0,
+            Some(_) => rolls
+                .iter_mut()
+                .filter(|roll| !roll.dropped && roll.result as usize == 1)
+                .count() as isize,
+        };
+
         let multiplier = if self.negative { -1 } else { 1 };
 
         let rolls = rolls
@@ -573,6 +584,7 @@ impl Die {
             crit: 0,
             base: total * multiplier,
             total: total * multiplier,
+            fails: fails * multiplier,
             label: None,
         }
     }
@@ -597,6 +609,7 @@ impl Die {
                 crit: 0,
                 base: total,
                 total: 0,
+                fails: 0,
                 label: None,
             };
         } else {
@@ -606,6 +619,7 @@ impl Die {
                 crit: total,
                 base: total,
                 total,
+                fails: 0,
                 label: None,
             }
         }
@@ -684,12 +698,17 @@ impl Display for RollResult {
         } else {
             rolls
         };
+        let fail = if self.fails > 0 && self.fails > self.total {
+            " (**Critical fail!**)"
+        } else {
+            ""
+        };
         let label = self
             .label
             .as_ref()
             .map(|lbl| format!("*{}:* ", lbl))
             .unwrap_or_else(|| "".to_string());
-        write!(f, "{}{} = **{}**", label, rolls, self.total)
+        write!(f, "{}{} = **{}**{}", label, rolls, self.total, fail)
     }
 }
 
@@ -702,6 +721,7 @@ impl Sum<RollResult> for RollResult {
                 crit: 0,
                 base: 0,
                 total: 0,
+                fails: 0,
                 label: None,
             },
             RollResult::add,
@@ -751,6 +771,7 @@ impl Add<RollResult> for RollResult {
             crit: self.crit + rhs.crit,
             base: self.base + rhs.base,
             total: self.total + rhs.total,
+            fails: self.fails + rhs.fails,
             label: None,
         }
     }
@@ -765,6 +786,7 @@ impl Product<RollResult> for RollResult {
                 crit: 0,
                 base: 1,
                 total: 0,
+                fails: 0,
                 label: None,
             },
             RollResult::mul,
@@ -780,6 +802,7 @@ impl Mul<isize> for RollResult {
             total: self.total * rhs,
             crit: self.crit * rhs,
             base: self.base * rhs,
+            fails: self.fails * rhs,
             ..self
         }
     }
@@ -812,12 +835,14 @@ impl Mul<RollResult> for RollResult {
 
         let total = self.base * rhs.total + self.total * rhs.base - self.total * rhs.total;
         let crit = self.base * rhs.crit + self.crit * rhs.base - self.crit * rhs.crit;
+        let fails = self.base * rhs.fails + self.fails * rhs.base;
 
         RollResult {
             specifier,
             rolls,
             total: if crit > 0 { total } else { total - crit },
             crit: if crit > 0 { crit } else { 0 },
+            fails,
             base: self.base * rhs.base,
             label: None,
         }
