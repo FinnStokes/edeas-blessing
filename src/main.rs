@@ -82,6 +82,15 @@ impl EventHandler for Handler {
                     } else {
                         format!("Bad dice roll `{}`: too many faces (max 1048576)", s)
                     }),
+                    DiceParseError::NotEnoughFaces(s) => Some(if is_kori {
+                        let react = msg.react(&ctx.http, '🤨');
+                        if let Err(why) = react.await {
+                            println!("Error reacting to message: {:?}", why);
+                        }
+                        "Did you underflow a register 0N1?".to_string()
+                    } else {
+                        format!("Bad dice roll `{}`: dice need at least one face", s)
+                    }),
                     DiceParseError::InvalidLabel(s) => Some(if is_kori {
                         let react = msg.react(&ctx.http, '🤭');
                         if let Err(why) = react.await {

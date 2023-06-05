@@ -70,6 +70,9 @@ pub enum DiceParseError {
     #[error("invalid dice string `{0}`: malformed number of faces")]
     InvalidNumberOfFaces(String, ParseIntError),
 
+    #[error("invalid dice string `{0}`: not enough faces (min 1)")]
+    NotEnoughFaces(String),
+
     #[error("invalid dice string `{0}`: too many faces (max 1048576)")]
     TooManyFaces(String),
 
@@ -236,7 +239,7 @@ struct Die {
     /// Drop lowest or highest rolls
     drop: Option<DropRule>,
 
-    /// Count successes above a this threshold
+    /// Count successes above this threshold
     count: Option<usize>,
 
     /// Subtract roll from result
@@ -308,6 +311,10 @@ impl FromStr for Die {
                 DiceParseError::MalformedModifiers(s.to_string())
             }
         })?;
+
+        if faces < 1 {
+            return Err(DiceParseError::NotEnoughFaces(s.to_string()));
+        }
 
         if faces > 1048576 {
             return Err(DiceParseError::TooManyFaces(s.to_string()));
