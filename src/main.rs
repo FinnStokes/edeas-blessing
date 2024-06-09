@@ -1,10 +1,8 @@
-use dice::DiceParseError;
+use edeas_blessing::{DiceParseError, DiceRoll, DropRule};
 use serenity::async_trait;
 use serenity::model::channel::Message;
 use serenity::prelude::*;
 use std::env;
-
-mod dice;
 
 struct Handler;
 
@@ -13,7 +11,7 @@ impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
         if msg.content.starts_with('!') {
             let is_kori = msg.author.id.as_u64() == &159989678559330304;
-            let response = match msg.content[1..].parse::<dice::DiceRoll>() {
+            let response = match msg.content[1..].parse::<DiceRoll>() {
                 Ok(roll) => {
                     let result = roll.roll();
                     let message = format!("{}", result);
@@ -45,10 +43,10 @@ impl EventHandler for Handler {
                         "Greedy robot! You can't take more than you have!".to_string()
                     } else {
                         match drop {
-                            dice::DropRule::KeepHighest(_) | dice::DropRule::KeepLowest(_) => {
+                            DropRule::KeepHighest(_) | DropRule::KeepLowest(_) => {
                                 format!("Bad dice roll `{}`: keep count must be less than number of dice", s)
                             }
-                            dice::DropRule::DropHighest(_) | dice::DropRule::DropLowest(_) => {
+                            DropRule::DropHighest(_) | DropRule::DropLowest(_) => {
                                 format!("Bad dice roll `{}`: drop count must be less than number of dice", s)
                             }
                         }

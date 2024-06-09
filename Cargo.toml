@@ -4,10 +4,15 @@ description = "Dice-rolling discord bot"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-serenity = { version = "0.11", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }
-tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+serenity = { version = "0.11", default-features = false, features = ["client", "gateway", "rustls_backend", "model"], optional = true }
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"], optional = true }
 rand = "0.8.5"
 thiserror = "1.0"
+
+[features]
+discord-bot = ["serenity", "tokio"]
+
+[[bin]]
+name = "edeas-blessing"
+required-features = ["discord-bot"]
